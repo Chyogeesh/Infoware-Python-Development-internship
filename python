@@ -1,0 +1,131 @@
+import time
+import json
+import csv
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from webdriver_manager.chrome import ChromeDriverManager
+
+# Function to authenticate to Amazon
+def authenticate_to_amazon(driver, email, password):
+    try:
+        driver.get("https://www.amazon.in/ap/signin")
+
+        # Enter email and continue
+        email_field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "ap_email"))
+        )
+        email_field.send_keys(email)
+        driver.find_element(By.ID, "continue").click()
+
+        # Enter password and log in
+        password_field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "ap_password"))
+        )
+        password_field.send_keys(password)
+        driver.find_element(By.ID, "signInSubmit").click()
+    except TimeoutException:
+        print("Login failed: Timeout while locating elements")
+        driver.quit()
+
+# Function to scrape product details
+def scrape_category(driver, category_url, category_name):
+    driver.get(category_url)
+    
+    products = []
+    for page in range(1, 4):  # Adjust as needed to scrape up to 1500 products (10 pages or more)
+        try:
+            # Wait for products to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.zg-grid-general-faceout"))
+            )
+            
+            product_elements = driver.find_elements(By.CSS_SELECTOR, "div.zg-grid-general-faceout")
+
+            for product in product_elements:
+                try:
+                    name = product.find_element(By.CSS_SELECTOR, "div.p13n-sc-truncate").text
+                    price = product.find_element(By.CSS_SELECTOR, "span.p13n-sc-price").text
+                    discount = "N/A"  # Placeholder if no discount found
+                    rating = product.find_element(By.CSS_SELECTOR, "span.a-icon-alt").text
+                    ship_from = "N/A"  # Placeholder
+                    sold_by = "N/A"  # Placeholder
+                    description = "N/A"  # Placeholder
+                    images = "N/A"  # Placeholder
+
+                    # Collect product data
+                    products.append({
+                        "Category": category_name,
+                        "Product Name": name,
+                        "Product Price": price,
+                        "Sale Discount": discount,
+                        "Best Seller Rating": rating,
+                        "Ship From": ship_from,
+                        "Sold By": sold_by,
+                        "Product Description": description,
+                        "Images": images
+                    })
+                except NoSuchElementException:
+                    continue
+
+            # Navigate to next page if available
+            next_button = driver.find_element(By.CSS_SELECTOR, "li.a-last a")
+            if next_button:
+                next_button.click()
+                time.sleep(2)
+            else:
+                break
+
+        except TimeoutException:
+            print(f"Timeout while loading page {page} of category {category_name}")
+            break
+
+    return products
+
+# Main function to execute the scraper
+def main():
+    email = "your-email@example.com"  # Replace with your email
+    password = "your-password"  # Replace with your password
+
+    categories = [
+        {"name": "Kitchen", "url": "https://www.amazon.in/gp/bestsellers/kitchen/ref=zg_bs_nav_kitchen_0"},
+        {"name": "Shoes", "url": "https://www.amazon.in/gp/bestsellers/shoes/ref=zg_bs_nav_shoes_0"},
+        {"name": "Computers", "url": "https://www.amazon.in/gp/bestsellers/computers/ref=zg_bs_nav_computers_0"},
+        {"name": "Electronics", "url": "https://www.amazon.in/gp/bestsellers/electronics/ref=zg_bs_nav_electronics_0"}
+        # Add more categories as needed
+    ]
+
+    # Initialize Selenium WebDriver
+    options = webdriver.ChromeOptions()
+    options.add_argument("--start-maximized")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
+    # Authenticate to Amazon
+    authenticate_to_amazon(driver, email, password)
+
+    all_products = []
+    for category in categories:
+        print(f"Scraping category: {category['name']}")
+        products = scrape_category(driver, category['url'], category['name'])
+        all_products.extend(products)
+
+    # Save data to a CSV file
+    with open("amazon_best_sellers.csv", "w", newline="", encoding="utf-8") as csvfile:
+        fieldnames = [
+            "Category", "Product Name", "Product Price", "Sale Discount", "Best Seller Rating",
+            "Ship From", "Sold By", "Product Description", "Images"
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(all_products)
+
+    print("Data saved to amazon_best_sellers.csv")
+    driver.quit()
+
+if __name__ == "__main__":
+    main()
